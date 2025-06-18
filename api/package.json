@@ -1,0 +1,13 @@
+{
+  "name": "racing-dashboard",
+  "version": "1.0.0",
+  "description": "Live racing dashboard with Betfair integration",
+  "main": "index.html",
+  "scripts": {
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": "22.x"
+  }
+}
