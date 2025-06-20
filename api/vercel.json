@@ -1,7 +1,105 @@
- }
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
   try {
-    const sessionToken = process.env.SESSION_TOKEN || "cPDrBLdD8pg0+mDYbEDftYBpX1j1RqHTyfwIuzZpO9M=";
     const sessionToken = process.env.SESSION_TOKEN || "uL6q0PVe7/EAJPxV8ip/1O45Hz7JRv8nU3E9AYQ4K6M=";
     const appKey = process.env.BETFAIR_APP_KEY || 'nzIFcwyWhrlwYMrh';
     
     const headers = {
+      'accept': 'application/json, text/plain, */*',
+      'accept-language': 'en-AU,en;q=0.9,en-US;q=0.8',
+      'cache-control': 'no-cache',
+      'cookie': `ssoid=${sessionToken}; betexRegion=GBR; betexCurrency=AUD; aps=GBR`,
+      'origin': 'https://www.betfair.com.au',
+      'referer': 'https://www.betfair.com.au/exchange/plus/horse-racing',
+      'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      'x-application': appKey,
+      'x-requested-with': 'XMLHttpRequest'
+    };
+
+    const apiUrl = `https://apieds.betfair.com.au/api/eds/meeting-races/v4?ak=${appKey}&countriesGroup=[[2]]&eventTypeGroup=[[1,4161]]&hasEventOwnedTeams=false&meetingStatus=ACTIVE,NEXT_TO_GO&resultsStatus=&isRaceActive=true&format=json`;
+    
+    const response = await fetch(apiUrl, { headers });
+
+    if (!response.ok) {
+      throw new Error(`Betfair API returned ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    
+    if (data && data.result && Array.isArray(data.result) && data.result.length > 0) {
+      const processedRaces = [];
+      
+      for (let meetingIndex = 0; meetingIndex < Math.min(data.result.length, 5); meetingIndex++) {
+        const meeting = data.result[meetingIndex];
+        const races = meeting.races || meeting.events || [];
+        
+        for (let raceIndex = 0; raceIndex < Math.min(races.length, 3); raceIndex++) {
+          const race = races[raceIndex];
+          const runners = race.runners || [];
+          
+          const processedRace = {
+            id: race.id || `race_${meetingIndex}_${raceIndex}`,
+            trackId: meeting.id || `track_${meetingIndex}`,
+            raceNumber: race.raceNumber || raceIndex + 1,
+            name: race.raceName || `Race ${race.raceNumber || raceIndex + 1}`,
+            distance: race.distance || 1200,
+            grade: race.raceClass || `Class ${(raceIndex % 3) + 1}`,
+            trackCondition: race.trackCondition || "Good",
+            startTime: race.raceStartTime ? new Date(race.raceStartTime).toISOString() : new Date(Date.now() + (raceIndex * 15 * 60 * 1000)).toISOString(),
+            status: race.raceStatus || "upcoming",
+            type: race.raceType === "4161" ? "greyhound" : "horse",
+            track: {
+              id: meeting.id || `track_${meetingIndex}`,
+              name: meeting.meetingName || "Unknown Track",
+              location: meeting.venueName || meeting.location || "Unknown",
+              state: meeting.countryCode || "AUS",
+              type: race.raceType === "4161" ? "greyhound" : "horse"
+            },
+            runners: runners.slice(0, 8).map((runner, runnerIndex) => ({
+              id: runner.runnerId || `runner_${meetingIndex}_${raceIndex}_${runnerIndex}`,
+              raceId: race.id || `race_${meetingIndex}_${raceIndex}`,
+              number: runner.runnerNumber || runnerIndex + 1,
+              name: runner.runnerName || `Runner ${runnerIndex + 1}`,
+              jockeyTrainer: runner.jockeyName || "TBA",
+              barrier: runner.barrier || runnerIndex + 1,
+              weight: runner.weight || null,
+              form: runner.form || "-----",
+              odds: [{
+                id: 1,
+                runnerId: runner.runnerId || `runner_${meetingIndex}_${raceIndex}_${runnerIndex}`,
+                bookmaker: "Betfair",
+                winOdds: (runner.lastPriceTraded || 5.0).toString(),
+                placeOdds: ((runner.lastPriceTraded || 5.0) * 0.4).toString(),
+                updatedAt: new Date().toISOString()
+              }]
+            }))
+          };
+          
+          processedRaces.push(processedRace);
+        }
+      }
+      
+      res.status(200).json(processedRaces);
+      return;
+    }
+    
+    res.status(200).json([]);
+    
+  } catch (error) {
+    console.error('Racing API Error:', error.message);
+    
+    res.status(500).json({ 
+      error: 'Failed to fetch racing data',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+}
