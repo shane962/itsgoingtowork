@@ -1,17 +1,8 @@
-export default async function handler(req, res) {
-  try {
-    const data = await fetchBetfairData();
-    const races = await processValidBetfairData(data);
-    
-    // Return array directly to match frontend expectations
-    res.status(200).json(races);
-  } catch (error) {
-    console.error('Racing API Error:', error.message);
-    // Return error object structure that frontend can handle
-    res.status(500).json({ 
-      error: 'Failed to fetch racing data',
-      message: error.message,
-      timestamp: new Date().toISOString()
-    });
+
   }
-}
+  try {
+    const sessionToken = process.env.SESSION_TOKEN || "cPDrBLdD8pg0+mDYbEDftYBpX1j1RqHTyfwIuzZpO9M=";
+    const sessionToken = process.env.SESSION_TOKEN || "uL6q0PVe7/EAJPxV8ip/1O45Hz7JRv8nU3E9AYQ4K6M=";
+    const appKey = process.env.BETFAIR_APP_KEY || 'nzIFcwyWhrlwYMrh';
+    
+    const headers = {
