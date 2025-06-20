@@ -1,4 +1,4 @@
-xport default async function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -13,49 +13,94 @@ xport default async function handler(req, res) {
     const appKey = process.env.BETFAIR_APP_KEY || 'nzIFcwyWhrlwYMrh';
     
     const headers = {
-      'accept': 'application/json',
-      'cookie': 'ssoid=' + sessionToken,
+      'accept': 'application/json, text/plain, */*',
+      'accept-language': 'en-AU,en;q=0.9,en-US;q=0.8',
+      'cache-control': 'no-cache',
+      'cookie': 'ssoid=' + sessionToken + '; betexRegion=GBR; betexCurrency=AUD; aps=GBR',
       'origin': 'https://www.betfair.com.au',
-      'x-application': appKey
+      'referer': 'https://www.betfair.com.au/exchange/plus/horse-racing',
+      'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      'x-application': appKey,
+      'x-requested-with': 'XMLHttpRequest'
     };
 
-    const url = 'https://apieds.betfair.com.au/api/eds/meeting-races/v4?ak=' + appKey + '&countriesGroup=[[2]]&eventTypeGroup=[[1,4161]]&meetingStatus=ACTIVE&format=json';
+    const apiUrl = 'https://apieds.betfair.com.au/api/eds/meeting-races/v4?ak=' + appKey + '&countriesGroup=[[2]]&eventTypeGroup=[[1,4161]]&hasEventOwnedTeams=false&meetingStatus=ACTIVE,NEXT_TO_GO&resultsStatus=&isRaceActive=true&format=json';
     
-    const response = await fetch(url, { headers });
+    const response = await fetch(apiUrl, { headers });
+
+    if (!response.ok) {
+      throw new Error('Betfair API returned ' + response.status + ': ' + response.statusText);
+    }
+
     const data = await response.json();
     
-    if (data && data.result && data.result.length > 0) {
-      const races = [];
+    if (data && data.result && Array.isArray(data.result) && data.result.length > 0) {
+      const processedRaces = [];
       
-      for (let i = 0; i < data.result.length && i < 5; i++) {
-        const meeting = data.result[i];
-        const meetingRaces = meeting.races || [];
+      for (let meetingIndex = 0; meetingIndex < Math.min(data.result.length, 5); meetingIndex++) {
+        const meeting = data.result[meetingIndex];
+        const races = meeting.races || meeting.events || [];
         
-        for (let j = 0; j < meetingRaces.length && j < 3; j++) {
-          const race = meetingRaces[j];
-          races.push({
-            id: race.id || 'race_' + i + '_' + j,
-            name: race.raceName || 'Race ' + (j + 1),
+        for (let raceIndex = 0; raceIndex < Math.min(races.length, 3); raceIndex++) {
+          const race = races[raceIndex];
+          const runners = race.runners || [];
+          
+          const processedRace = {
+            id: race.id || 'race_' + meetingIndex + '_' + raceIndex,
+            trackId: meeting.id || 'track_' + meetingIndex,
+            raceNumber: race.raceNumber || raceIndex + 1,
+            name: race.raceName || 'Race ' + (race.raceNumber || raceIndex + 1),
+            distance: race.distance || 1200,
+            grade: race.raceClass || 'Class ' + ((raceIndex % 3) + 1),
+            trackCondition: race.trackCondition || "Good",
+            startTime: race.raceStartTime ? new Date(race.raceStartTime).toISOString() : new Date(Date.now() + (raceIndex * 15 * 60 * 1000)).toISOString(),
+            status: race.raceStatus || "upcoming",
+            type: race.raceType === "4161" ? "greyhound" : "horse",
             track: {
-              name: meeting.meetingName || 'Track ' + (i + 1),
-              location: meeting.venueName || 'Unknown'
+              id: meeting.id || 'track_' + meetingIndex,
+              name: meeting.meetingName || "Unknown Track",
+              location: meeting.venueName || meeting.location || "Unknown",
+              state: meeting.countryCode || "AUS",
+              type: race.raceType === "4161" ? "greyhound" : "horse"
             },
-            runners: (race.runners || []).slice(0, 6).map(function(runner, k) {
+            runners: runners.slice(0, 8).map(function(runner, runnerIndex) {
               return {
-                number: runner.runnerNumber || k + 1,
-                name: runner.runnerName || 'Runner ' + (k + 1),
-                odds: runner.lastPriceTraded || 5.0
+                id: runner.runnerId || 'runner_' + meetingIndex + '_' + raceIndex + '_' + runnerIndex,
+                raceId: race.id || 'race_' + meetingIndex + '_' + raceIndex,
+                number: runner.runnerNumber || runnerIndex + 1,
+                name: runner.runnerName || 'Runner ' + (runnerIndex + 1),
+                jockeyTrainer: runner.jockeyName || "TBA",
+                barrier: runner.barrier || runnerIndex + 1,
+                weight: runner.weight || null,
+                form: runner.form || "-----",
+                odds: [{
+                  id: 1,
+                  runnerId: runner.runnerId || 'runner_' + meetingIndex + '_' + raceIndex + '_' + runnerIndex,
+                  bookmaker: "Betfair",
+                  winOdds: (runner.lastPriceTraded || 5.0).toString(),
+                  placeOdds: ((runner.lastPriceTraded || 5.0) * 0.4).toString(),
+                  updatedAt: new Date().toISOString()
+                }]
               };
             })
-          });
+          };
+          
+          processedRaces.push(processedRace);
         }
       }
       
-      res.status(200).json(races);
-    } else {
-      res.status(200).json([]);
+      res.status(200).json(processedRaces);
+      return;
     }
     
+    res.status(200).json([]);
+    
   } catch (error) {
-    res.status(500).json({ error: 'API Error' });
-  }
+    console.error('Racing API Error:', error.message);
+    
+    res.status(500).json({ 
+      error: 'Failed to fetch racing data',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+ 
